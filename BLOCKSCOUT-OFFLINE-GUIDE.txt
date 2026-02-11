@@ -1,0 +1,176 @@
+================================================================================
+  BLOCKSCOUT + HARDHAT NODE - RUN ON OFFLINE PC (STEP-BY-STEP GUIDE)
+================================================================================
+
+Part A: On a machine WITH internet (one-time prep)
+-------------------------------------------------
+
+Step 1: Clone BlockScout and go to docker-compose
+
+  git clone https://github.com/blockscout/blockscout.git
+  cd blockscout/docker-compose
+
+Step 2: Pull all images for Hardhat setup
+
+  docker compose -f hardhat-network.yml pull
+
+Step 3: Save all images to a file
+
+  docker compose -f hardhat-network.yml config --images
+
+  Use that list in the next command. Example:
+
+  docker save -o blockscout-hardhat-images.tar \
+    redis:alpine \
+    postgres:17 \
+    nginx:latest \
+    ghcr.io/blockscout/blockscout:latest \
+    ghcr.io/blockscout/frontend:latest \
+    ghcr.io/blockscout/stats:latest \
+    ghcr.io/blockscout/visualizer:latest \
+    ghcr.io/blockscout/sig-provider:latest \
+    ghcr.io/blockscout/user-ops-indexer:latest
+
+Step 4: Copy these to USB (or other transfer)
+
+  - blockscout          = whole repo folder
+  - blockscout-hardhat-images.tar
+  - Your Hardhat project (e.g. smart-contract with package.json, hardhat.config.js)
+  - Node.js installer    = for the offline PC
+  - Docker installer    = for the offline PC
+
+
+Part B: On the OFFLINE PC
+-------------------------
+
+Step 5: Install Docker
+
+  Windows: Run the Docker Desktop installer you copied; reboot if asked.
+  Linux:   Install from the copied package, then:
+           sudo systemctl enable docker && sudo systemctl start docker
+
+  Check: docker --version
+         docker compose version
+
+Step 6: Install Node.js (for Hardhat node)
+
+  Windows: Run the Node installer you copied.
+  Linux:   Extract the binary tarball and add the bin folder to PATH.
+
+  Check: node -v
+         npm -v
+
+Step 7: Copy folders and tar onto the offline PC
+
+  Copy from USB to the offline PC, e.g.:
+  - blockscout                    -> e.g. C:\blockscout or /home/user/blockscout
+  - blockscout-hardhat-images.tar -> same folder or known path
+  - Your Hardhat project          -> e.g. C:\smart-contract or /home/user/smart-contract
+
+Step 8: Load Docker images
+
+  docker load -i /path/to/blockscout-hardhat-images.tar
+
+  Example (Linux):
+  docker load -i /home/user/blockscout-hardhat-images.tar
+
+Step 9: Disable image pull so Compose does not use the network
+
+  Linux/WSL:
+  export COMPOSE_PULL_POLICY=never
+
+  Windows (PowerShell):
+  $env:COMPOSE_PULL_POLICY="never"
+
+  Alternatively: In each BlockScout service file under
+  blockscout/docker-compose/services/ that has "pull_policy: always",
+  change it to "pull_policy: never" (backend, frontend, stats, visualizer,
+  sig-provider, user-ops-indexer).
+
+Step 10: Point BlockScout at the Hardhat node on the same PC
+
+  On the offline PC, Hardhat and BlockScout run on the same machine.
+  From inside Docker, the node is the host.
+
+  Edit blockscout/docker-compose/hardhat-network.yml:
+
+  Under BACKEND environment (and any env files it uses), set:
+  - ETHEREUM_JSONRPC_HTTP_URL:  http://172.17.0.1:8545/
+  - ETHEREUM_JSONRPC_WS_URL:    ws://172.17.0.1:8545/
+  - ETHEREUM_JSONRPC_TRACE_URL: http://172.17.0.1:8545/
+  - CHAIN_ID: '31337'
+
+  If the backend has extra_hosts: host.docker.internal:host-gateway,
+  you can use http://host.docker.internal:8545/ instead of 172.17.0.1.
+
+  Under FRONTEND environment:
+  - NEXT_PUBLIC_NETWORK_RPC_URL: http://172.17.0.1:8545/
+  - NEXT_PUBLIC_NETWORK_ID: '31337'
+
+  Windows (Docker Desktop): use host.docker.internal instead of 172.17.0.1.
+
+  Save the file(s).
+
+Step 11: Start Hardhat node
+
+  In a terminal on the offline PC:
+
+  cd /path/to/your/smart-contract
+  npx hardhat node --hostname 0.0.0.0
+
+  Leave this running. --hostname 0.0.0.0 is required so Docker can reach it.
+
+  If npx fails (no cache): On the online machine run "npm install" in the
+  Hardhat project, then copy the whole project (including node_modules)
+  to the offline PC.
+
+Step 12: Start BlockScout
+
+  In another terminal:
+
+  cd /path/to/blockscout/docker-compose
+  export COMPOSE_PULL_POLICY=never
+  docker compose -f hardhat-network.yml up -d
+
+  Windows PowerShell:
+  cd C:\path\to\blockscout\docker-compose
+  $env:COMPOSE_PULL_POLICY="never"
+  docker compose -f hardhat-network.yml up -d
+
+Step 13: Open BlockScout in the browser
+
+  On the offline PC, open:
+  http://localhost
+  or
+  http://127.0.0.1
+
+  If blocks do not show, check backend logs:
+  docker compose -f hardhat-network.yml logs backend --tail 100
+
+
+Quick checklist (offline PC)
+----------------------------
+
+  [ ] Install Docker
+  [ ] Install Node.js
+  [ ] Copy blockscout folder and tar from USB
+  [ ] docker load -i blockscout-hardhat-images.tar
+  [ ] Set COMPOSE_PULL_POLICY=never (or pull_policy: never in service ymls)
+  [ ] Edit backend/frontend env: RPC/WS = 172.17.0.1:8545 (or host.docker.internal),
+      CHAIN_ID and NEXT_PUBLIC_NETWORK_ID = 31337
+  [ ] Start Hardhat: cd smart-contract && npx hardhat node --hostname 0.0.0.0
+  [ ] Start BlockScout: cd blockscout/docker-compose && docker compose -f hardhat-network.yml up -d
+  [ ] Open http://localhost in the browser
+
+
+If the Hardhat project has no node_modules offline
+---------------------------------------------------
+
+  On the ONLINE machine, in the Hardhat project run:
+  npm install
+
+  Then copy the ENTIRE project folder (including node_modules) to the
+  offline PC. Then "npx hardhat node --hostname 0.0.0.0" will work
+  without internet.
+
+================================================================================

@@ -1,0 +1,235 @@
+================================================================================
+  OFFLINE: INSTALL ALL .DEB PACKAGES + RUN BLOCKSCOUT (STEP-BY-STEP)
+================================================================================
+
+Assume you have:
+  - A folder with all .deb files (e.g. /root/offline-packages or /home/user/debs)
+  - blockscout folder (git clone)
+  - blockscout-hardhat-images.tar
+  - Your Hardhat project (e.g. smart-contract) with node_modules already (npm install done online)
+
+--------------------------------------------------------------------------------
+PART 1: INSTALL ALL .DEB PACKAGES (OFFLINE)
+--------------------------------------------------------------------------------
+
+Step 1.1: Open a terminal and go to the folder with .deb files
+
+  cd /path/to/your/deb/folder
+
+  Example:
+  cd /root/offline-packages
+  # or
+  cd ~/debs
+
+Step 1.2: Install in dependency order (so dpkg does not fail)
+
+  First, install containerd and Docker dependencies, then Docker, then the rest.
+
+  (A) Containerd (if you have it):
+      sudo dpkg -i containerd.io_*.deb
+
+  (B) Docker CE CLI and Engine:
+      sudo dpkg -i docker-ce-cli_*.deb
+      sudo dpkg -i docker-ce_*.deb
+
+  (C) Docker Compose plugin:
+      sudo dpkg -i docker-compose-plugin_*.deb
+
+  (D) Fix any missing dependencies (optional; may need other .debs in the folder):
+      sudo apt-get install -f
+
+  If apt-get install -f asks for internet, skip it. Install other .deb packages
+  you have (e.g. build-essential, libc6, etc.) manually:
+      sudo dpkg -i *.deb
+
+  (E) Node.js and npm (if you have nodejs_*.deb):
+      sudo dpkg -i nodejs_*.deb
+      sudo dpkg -i npm_*.deb
+
+  (F) make, git, build-essential, python3 (if you have them):
+      sudo dpkg -i make_*.deb
+      sudo dpkg -i git_*.deb
+      sudo dpkg -i build-essential_*.deb
+      sudo dpkg -i python3_*.deb
+
+  (G) If any package failed due to dependencies, install all .deb at once:
+      sudo dpkg -i *.deb
+      sudo apt-get install -f
+
+Step 1.3: Start Docker and enable it on boot
+
+  sudo systemctl start docker
+  sudo systemctl enable docker
+
+Step 1.4: Allow your user to run Docker without sudo (optional)
+
+  sudo usermod -aG docker $USER
+  # Log out and log back in, or run: newgrp docker
+
+Step 1.5: Check installations
+
+  docker --version
+  docker compose version
+  node -v
+  npm -v
+  make -v
+
+--------------------------------------------------------------------------------
+PART 2: LOAD BLOCKSCOUT DOCKER IMAGES (OFFLINE)
+--------------------------------------------------------------------------------
+
+Step 2.1: Copy the image tar to a known path (if not already)
+
+  Example:
+  cp /path/to/USB/blockscout-hardhat-images.tar /root/
+  # or leave it where you copied it
+
+Step 2.2: Load the images into Docker
+
+  docker load -i /path/to/blockscout-hardhat-images.tar
+
+  Example:
+  docker load -i /root/blockscout-hardhat-images.tar
+
+  Wait until it finishes. You should see "Loaded image: ..." for each image.
+
+--------------------------------------------------------------------------------
+PART 3: PREPARE BLOCKSCOUT AND HARDHAT
+--------------------------------------------------------------------------------
+
+Step 3.1: Set Compose to never pull (offline)
+
+  export COMPOSE_PULL_POLICY=never
+
+  (Add this line to your shell profile if you want it every time, or run it
+   before every "docker compose" command.)
+
+Step 3.2: Go to BlockScout docker-compose directory
+
+  cd /path/to/blockscout/docker-compose
+
+  Example:
+  cd /root/blockscout/docker-compose
+
+Step 3.3: Point BlockScout to Hardhat node on same machine
+
+  Edit hardhat-network.yml.
+
+  Backend: set these under backend -> environment:
+    ETHEREUM_JSONRPC_HTTP_URL:  http://172.17.0.1:8545/
+    ETHEREUM_JSONRPC_WS_URL:    ws://172.17.0.1:8545/
+    ETHEREUM_JSONRPC_TRACE_URL: http://172.17.0.1:8545/
+    CHAIN_ID: '31337'
+
+  Frontend: set under frontend -> environment:
+    NEXT_PUBLIC_NETWORK_RPC_URL: http://172.17.0.1:8545/
+    NEXT_PUBLIC_NETWORK_ID: '31337'
+
+  If your Docker has host.docker.internal (e.g. Docker Desktop), you can use
+  http://host.docker.internal:8545/ instead of 172.17.0.1.
+
+  Save the file.
+
+Step 3.4: (Optional) Disable pull in service files
+
+  In blockscout/docker-compose/services/ change every "pull_policy: always"
+  to "pull_policy: never" in:
+  backend.yml, frontend.yml, stats.yml, visualizer.yml, sig-provider.yml,
+  user-ops-indexer.yml
+
+--------------------------------------------------------------------------------
+PART 4: RUN HARDHAT NODE
+--------------------------------------------------------------------------------
+
+Step 4.1: Open a terminal and start the Hardhat node
+
+  cd /path/to/your/smart-contract
+
+  Example:
+  cd /root/smart-contract
+
+  npx hardhat node --hostname 0.0.0.0
+
+  Leave this terminal open. You should see "Started HTTP and WebSocket JSON-RPC
+  server at http://0.0.0.0:8545/".
+
+--------------------------------------------------------------------------------
+PART 5: RUN BLOCKSCOUT
+--------------------------------------------------------------------------------
+
+Step 5.1: Open a NEW terminal (keep Hardhat node running in the first one)
+
+Step 5.2: Set pull policy and go to compose directory
+
+  export COMPOSE_PULL_POLICY=never
+  cd /path/to/blockscout/docker-compose
+
+  Example:
+  export COMPOSE_PULL_POLICY=never
+  cd /root/blockscout/docker-compose
+
+Step 5.3: Start BlockScout
+
+  docker compose -f hardhat-network.yml up -d
+
+  Wait 1–2 minutes for the backend to start and run migrations.
+
+Step 5.4: Check that containers are running
+
+  docker compose -f hardhat-network.yml ps
+
+  All services should show "Up" or "running".
+
+Step 5.5: (Optional) Watch backend logs
+
+  docker compose -f hardhat-network.yml logs -f backend
+
+  You should see indexing messages. Press Ctrl+C to stop following logs.
+
+--------------------------------------------------------------------------------
+PART 6: OPEN BLOCKSCOUT IN BROWSER
+--------------------------------------------------------------------------------
+
+Step 6.1: On the same machine, open a browser and go to:
+
+  http://localhost
+
+  or
+
+  http://127.0.0.1
+
+  BlockScout should load and show blocks from your Hardhat node.
+
+Step 6.2: If blocks do not appear
+
+  - Wait 1–2 minutes for the indexer to catch up.
+  - Check backend logs: docker compose -f hardhat-network.yml logs backend --tail 100
+  - Ensure Hardhat node is still running in the other terminal.
+
+--------------------------------------------------------------------------------
+PART 7: STOP BLOCKSCOUT AND HARDHAT
+--------------------------------------------------------------------------------
+
+Stop BlockScout (containers):
+
+  cd /path/to/blockscout/docker-compose
+  docker compose -f hardhat-network.yml down --remove-orphans
+
+Stop Hardhat node:
+
+  In the terminal where Hardhat is running, press Ctrl+C.
+
+--------------------------------------------------------------------------------
+QUICK REFERENCE (ORDER OF OPERATIONS)
+--------------------------------------------------------------------------------
+
+1. Install .deb:  cd debs && sudo dpkg -i *.deb && sudo apt-get install -f
+2. Start Docker:  sudo systemctl start docker && sudo systemctl enable docker
+3. Load images:   docker load -i blockscout-hardhat-images.tar
+4. Set env:       export COMPOSE_PULL_POLICY=never
+5. Edit YAML:     hardhat-network.yml -> backend/frontend URLs = 172.17.0.1:8545, CHAIN_ID 31337
+6. Terminal 1:    cd smart-contract && npx hardhat node --hostname 0.0.0.0
+7. Terminal 2:    cd blockscout/docker-compose && docker compose -f hardhat-network.yml up -d
+8. Browser:       http://localhost
+
+================================================================================
